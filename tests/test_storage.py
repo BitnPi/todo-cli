@@ -127,6 +127,55 @@ def test_save_new_file_follows_umask(tmp_path):
     assert stat.S_IMODE(path.stat().st_mode) == 0o640
 
 
+def test_locked_excludes_other_holders_until_released(tmp_path):
+    path = tmp_path / "t.json"
+    acquired = threading.Event()
+
+    def contender():
+        with storage.locked(path):
+            acquired.set()
+
+    with storage.locked(path):
+        thread = threading.Thread(target=contender)
+        thread.start()
+        assert not acquired.wait(timeout=0.2)
+    thread.join(timeout=10)
+    assert acquired.is_set()
+
+
+def test_locked_survives_save_replacing_the_todo_file(tmp_path):
+    path = tmp_path / "t.json"
+    acquired = threading.Event()
+
+    def contender():
+        with storage.locked(path):
+            acquired.set()
+
+    with storage.locked(path):
+        storage.save(path, [])
+        thread = threading.Thread(target=contender)
+        thread.start()
+        assert not acquired.wait(timeout=0.2)
+    thread.join(timeout=10)
+    assert acquired.is_set()
+
+
+def test_locked_is_released_when_the_body_raises(tmp_path):
+    path = tmp_path / "t.json"
+    with pytest.raises(RuntimeError):
+        with storage.locked(path):
+            raise RuntimeError
+    with storage.locked(path):
+        pass
+
+
+def test_locked_creates_missing_parent_and_leaves_todo_file_alone(tmp_path):
+    path = tmp_path / "new" / "t.json"
+    with storage.locked(path):
+        pass
+    assert [p.name for p in path.parent.iterdir()] == ["t.json.lock"]
+
+
 @pytest.mark.parametrize(
     "data",
     [

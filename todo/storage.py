@@ -4,8 +4,15 @@ import json
 import os
 import stat
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+
+try:
+    import fcntl
+except ImportError:  # not available on Windows
+    fcntl = None
 
 DEFAULT_PATH = "todos.json"
 ENV_VAR = "TODO_FILE"
@@ -20,6 +27,30 @@ class StorageError(Exception):
 def todo_path() -> Path:
     """Return the todo file path, honouring ``TODO_FILE`` when it is set."""
     return Path(os.environ.get(ENV_VAR) or DEFAULT_PATH)
+
+
+@contextmanager
+def locked(path: Path) -> Iterator[None]:
+    """Hold an exclusive lock on ``path`` for a whole load -> mutate -> save cycle.
+
+    save() is atomic, but that only prevents partial files: without this lock,
+    two writers can load the same list and the last save drops the other's
+    change. Readers don't need it, because save() never exposes partial data.
+
+    The lock lives on a sibling ``<path>.lock`` because save() replaces the todo
+    file's inode, so a lock on the file itself would be left behind on the old
+    one. The lock file is deliberately never removed: unlinking it would let two
+    processes hold "the" lock on different inodes. The lock isn't reentrant.
+
+    Where fcntl is missing (Windows) this does nothing, so concurrent writers
+    there can still lose updates.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path.parent / f"{path.name}.lock", "a") as lock_file:
+        if fcntl is not None:
+            # Released when the file is closed, including if the process dies.
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+        yield
 
 
 def _is_valid(item: Any) -> bool:

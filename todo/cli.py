@@ -12,10 +12,11 @@ def cmd_add(args: argparse.Namespace) -> int:
         print("todo: text must not be empty", file=sys.stderr)
         return 1
     path = storage.todo_path()
-    todos = storage.load(path)
-    new_id = storage.next_id(todos)
-    todos.append({"id": new_id, "text": text, "done": False})
-    storage.save(path, todos)
+    with storage.locked(path):
+        todos = storage.load(path)
+        new_id = storage.next_id(todos)
+        todos.append({"id": new_id, "text": text, "done": False})
+        storage.save(path, todos)
     print(new_id)
     return 0
 
@@ -29,12 +30,13 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 def cmd_done(args: argparse.Namespace) -> int:
     path = storage.todo_path()
-    todos = storage.load(path)
-    for todo in todos:
-        if todo["id"] == args.id:
-            todo["done"] = True
-            storage.save(path, todos)
-            return 0
+    with storage.locked(path):
+        todos = storage.load(path)
+        for todo in todos:
+            if todo["id"] == args.id:
+                todo["done"] = True
+                storage.save(path, todos)
+                return 0
     print(f"todo: no item with id {args.id}", file=sys.stderr)
     return 1
 

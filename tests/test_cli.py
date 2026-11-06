@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from todo import storage
 from todo.cli import main
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -20,6 +21,17 @@ def read(path):
 def write(path, todos):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(todos), encoding="utf-8")
+
+
+def spawn(path, *args):
+    """Start a real ``todo`` process against ``path`` without waiting for it."""
+    return subprocess.Popen(
+        [sys.executable, "-m", "todo.cli", *args],
+        env={**os.environ, "PYTHONPATH": str(REPO_ROOT), "TODO_FILE": str(path)},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
 
 
 # add
@@ -202,3 +214,57 @@ def test_process_exit_codes(tmp_path):
     assert run("done", "1").returncode == 0
     assert run("list").stdout == "1: [x] one\n"
     assert run("done", "2").returncode != 0
+
+
+# concurrency
+
+
+@pytest.mark.parametrize("command", [("add", "new"), ("done", "1")])
+def test_modifying_commands_load_only_after_taking_the_lock(tmp_path, command):
+    path = tmp_path / "t.json"
+    first = {"id": 1, "text": "first", "done": False}
+    second = {"id": 2, "text": "second", "done": False}
+    write(path, [first])
+
+    with storage.locked(path):
+        process = spawn(path, *command)
+        with pytest.raises(subprocess.TimeoutExpired):
+            process.wait(timeout=1)
+        # Written while the command waits: it must see this, not a stale list.
+        write(path, [first, second])
+
+    _, stderr = process.communicate(timeout=30)
+    assert process.returncode == 0, stderr
+    todos = read(path)
+    assert second in todos
+    assert len(todos) == (3 if command[0] == "add" else 2)
+
+
+def test_concurrent_adds_keep_every_item_with_unique_ids(tmp_path):
+    path = tmp_path / "t.json"
+    count = 24
+    processes = [spawn(path, "add", f"item {i}") for i in range(count)]
+    results = [process.communicate(timeout=60) for process in processes]
+
+    assert all(process.returncode == 0 for process in processes), results
+    todos = read(path)
+    assert sorted(todo["text"] for todo in todos) == sorted(
+        f"item {i}" for i in range(count)
+    )
+    assert sorted(todo["id"] for todo in todos) == list(range(1, count + 1))
+    assert sorted(int(stdout) for stdout, _ in results) == list(range(1, count + 1))
+
+
+def test_concurrent_add_and_done_keep_both_changes(tmp_path):
+    path = tmp_path / "t.json"
+    count = 12
+    write(path, [{"id": i, "text": "old", "done": False} for i in range(1, count + 1)])
+
+    processes = [spawn(path, "done", str(i)) for i in range(1, count + 1)]
+    processes += [spawn(path, "add", f"new {i}") for i in range(count)]
+    results = [process.communicate(timeout=60) for process in processes]
+
+    assert all(process.returncode == 0 for process in processes), results
+    todos = read(path)
+    assert len(todos) == 2 * count
+    assert all(todo["done"] for todo in todos if todo["text"] == "old")

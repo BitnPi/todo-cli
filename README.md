@@ -30,6 +30,8 @@ Todos are stored in a JSON file. Override the path with the `TODO_FILE` environm
 
 The file holds a list of objects with an integer `id`, string `text` and boolean `done`. New ids are the highest existing id plus one.
 
+`add` and `done` hold an exclusive lock on a sibling `<file>.lock` while they update the file, so concurrent commands don't lose each other's changes. The lock file stays in place and is safe to ignore. Locking uses `fcntl`, so it isn't available on Windows.
+
 ## Development
 
 ```bash
