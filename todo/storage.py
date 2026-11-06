@@ -2,6 +2,8 @@
 
 import json
 import os
+import stat
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -46,17 +48,36 @@ def load(path: Path) -> list[Todo]:
     return data
 
 
-def save(path: Path, todos: list[Todo]) -> None:
-    """Write todos atomically so a failed write cannot corrupt existing data."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
+def _file_mode(path: Path) -> int:
+    """Return the mode ``path`` should have: its current one, else the umask default."""
     try:
-        tmp.write_text(
-            json.dumps(todos, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-        )
+        return stat.S_IMODE(path.stat().st_mode)
+    except FileNotFoundError:
+        umask = os.umask(0)
+        os.umask(umask)
+        return 0o666 & ~umask
+
+
+def save(path: Path, todos: list[Todo]) -> None:
+    """Write todos atomically so a failed write cannot corrupt existing data.
+
+    Each save writes to its own exclusively created temp file, so concurrent
+    saves cannot touch each other's pending data or any unrelated file.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
+    )
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
+            tmp_file.write(json.dumps(todos, indent=2, ensure_ascii=False) + "\n")
+        # mkstemp creates the file 0600; don't let that leak onto the todo file.
+        tmp.chmod(_file_mode(path))
         os.replace(tmp, path)
-    finally:
+    except BaseException:
         tmp.unlink(missing_ok=True)
+        raise
 
 
 def next_id(todos: list[Todo]) -> int:
