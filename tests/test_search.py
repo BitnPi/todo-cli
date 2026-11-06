@@ -52,7 +52,9 @@ def test_search_missing_term_prints_usage_to_stderr(todo_file, capsys, args):
     assert "Usage: todo search <term>" in captured.err
 
 
-def test_search_reads_path_from_todo_file_not_cwd(todo_file, tmp_path, monkeypatch, capsys):
+def test_search_reads_path_from_todo_file_not_cwd(
+    todo_file, tmp_path, monkeypatch, capsys
+):
     cwd = tmp_path / "elsewhere"
     cwd.mkdir()
     (cwd / "todos.json").write_text(

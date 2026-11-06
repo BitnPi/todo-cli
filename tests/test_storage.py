@@ -162,9 +162,8 @@ def test_locked_survives_save_replacing_the_todo_file(tmp_path):
 
 def test_locked_is_released_when_the_body_raises(tmp_path):
     path = tmp_path / "t.json"
-    with pytest.raises(RuntimeError):
-        with storage.locked(path):
-            raise RuntimeError
+    with pytest.raises(RuntimeError), storage.locked(path):
+        raise RuntimeError
     with storage.locked(path):
         pass
 

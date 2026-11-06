@@ -12,7 +12,7 @@ from typing import Any
 try:
     import fcntl
 except ImportError:  # not available on Windows
-    fcntl = None
+    fcntl = None  # type: ignore[assignment]
 
 DEFAULT_PATH = "todos.json"
 ENV_VAR = "TODO_FILE"

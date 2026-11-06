@@ -174,9 +174,7 @@ def test_empty_todo_file_falls_back_to_default(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("command", [["list"], ["add", "x"], ["done", "1"]])
-def test_corrupt_file_reports_error_and_is_not_overwritten(
-    todo_file, capsys, command
-):
+def test_corrupt_file_reports_error_and_is_not_overwritten(todo_file, capsys, command):
     todo_file.parent.mkdir(parents=True)
     todo_file.write_text("{not json", encoding="utf-8")
     assert main(command) == 1

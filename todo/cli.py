@@ -2,6 +2,7 @@
 
 import argparse
 import sys
+from collections.abc import Callable
 
 from todo import storage
 from todo.search import search_todos
@@ -89,8 +90,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command is None:
         parser.print_help()
         return 0
+    func: Callable[[argparse.Namespace], int] = args.func
     try:
-        return args.func(args)
+        return func(args)
     except (storage.StorageError, OSError) as exc:
         print(f"todo: {exc}", file=sys.stderr)
         return 1
