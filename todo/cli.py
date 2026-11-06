@@ -4,6 +4,12 @@ import argparse
 import sys
 
 from todo import storage
+from todo.search import search_todos
+
+
+def format_todo(todo: storage.Todo) -> str:
+    mark = "x" if todo["done"] else " "
+    return f"{todo['id']}: [{mark}] {todo['text']}"
 
 
 def cmd_add(args: argparse.Namespace) -> int:
@@ -23,8 +29,7 @@ def cmd_add(args: argparse.Namespace) -> int:
 
 def cmd_list(args: argparse.Namespace) -> int:
     for todo in storage.load(storage.todo_path()):
-        mark = "x" if todo["done"] else " "
-        print(f"{todo['id']}: [{mark}] {todo['text']}")
+        print(format_todo(todo))
     return 0
 
 
@@ -41,6 +46,21 @@ def cmd_done(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_search(args: argparse.Namespace) -> int:
+    term = " ".join(args.term)
+    if not term:
+        print("Usage: todo search <term>", file=sys.stderr)
+        return 2
+    try:
+        todos = storage.load(storage.todo_path())
+    except (storage.StorageError, OSError) as exc:
+        print(f"todo: cannot read todo file: {exc}", file=sys.stderr)
+        return 1
+    for todo in search_todos(todos, term):
+        print(format_todo(todo))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="todo", description="A small to-do app.")
     commands = parser.add_subparsers(dest="command", metavar="<command>")
@@ -55,6 +75,10 @@ def build_parser() -> argparse.ArgumentParser:
     done = commands.add_parser("done", help="mark an item done")
     done.add_argument("id", type=int, help="item id")
     done.set_defaults(func=cmd_done)
+
+    search = commands.add_parser("search", help="list items containing a term")
+    search.add_argument("term", nargs="*", help="text to look for, ignoring case")
+    search.set_defaults(func=cmd_search)
 
     return parser
 
