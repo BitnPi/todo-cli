@@ -51,3 +51,18 @@ pip install -r requirements-dev.txt
 pip install -e .
 pytest
 ```
+
+### Quality gates
+
+CI runs these on Python 3.10, 3.11 and 3.12. To run them locally, with the virtual environment active:
+
+```bash
+pytest
+ruff check .
+ruff format --check .
+mypy todo
+bandit -c pyproject.toml -r todo
+pip-audit --skip-editable
+```
+
+`ruff format .` applies the formatting. `pip-audit` also checks the tools in your environment, so run `python -m pip install --upgrade pip setuptools wheel` first if it flags them. On Python 3.10 it reports two `filelock` advisories that have no fix for that version; CI ignores them there, as explained in `.github/workflows/ci.yml`.

@@ -1,1 +1,9 @@
-pytest>=8.0
+pytest==9.2.0
+ruff==0.17.4
+mypy==2.4.1
+bandit==1.9.4
+pip-audit==2.10.1
+# pip-audit needs filelock, and every fixed release requires Python >=3.11.
+# 3.20.3 has the fewest advisories of the releases 3.10 can install; the two
+# that remain are ignored on 3.10 only (see .github/workflows/ci.yml).
+filelock==3.20.3; python_version < "3.11"
