@@ -216,6 +216,76 @@ def test_process_exit_codes(tmp_path):
     assert run("done", "2").returncode != 0
 
 
+# symlinks
+
+
+@pytest.fixture
+def linked(tmp_path):
+    """Return ``(link, target)``, with the symlink in a different directory."""
+    target = tmp_path / "real" / "t.json"
+    link = tmp_path / "links" / "t.json"
+    target.parent.mkdir()
+    link.parent.mkdir()
+    link.symlink_to(target)
+    return link, target
+
+
+@pytest.mark.parametrize("command", [("add", "new"), ("done", "1")])
+def test_modifying_commands_update_symlink_target(linked, monkeypatch, command):
+    link, target = linked
+    write(target, [{"id": 1, "text": "first", "done": False}])
+    monkeypatch.setenv("TODO_FILE", str(link))
+
+    assert main(list(command)) == 0
+
+    assert link.is_symlink()
+    assert read(link) == read(target)
+    assert read(target) != [{"id": 1, "text": "first", "done": False}]
+
+
+def test_add_through_dangling_symlink_creates_target(linked, monkeypatch):
+    link, target = linked
+    monkeypatch.setenv("TODO_FILE", str(link))
+
+    assert main(["add", "new"]) == 0
+
+    assert link.is_symlink()
+    assert read(target) == [{"id": 1, "text": "new", "done": False}]
+
+
+def test_add_through_symlinked_parent_creates_file(tmp_path, monkeypatch):
+    real = tmp_path / "real"
+    real.mkdir()
+    (tmp_path / "alias").symlink_to(real, target_is_directory=True)
+    monkeypatch.setenv("TODO_FILE", str(tmp_path / "alias" / "t.json"))
+
+    assert main(["add", "new"]) == 0
+
+    assert read(real / "t.json") == [{"id": 1, "text": "new", "done": False}]
+
+
+def test_symlink_and_target_share_one_lock(linked):
+    link, target = linked
+
+    with storage.locked(target):
+        process = spawn(link, "add", "new")
+        with pytest.raises(subprocess.TimeoutExpired):
+            process.wait(timeout=1)
+
+    _, stderr = process.communicate(timeout=30)
+    assert process.returncode == 0, stderr
+    assert read(target) == [{"id": 1, "text": "new", "done": False}]
+
+
+def test_symlink_loop_is_reported_cleanly(tmp_path, monkeypatch, capsys):
+    loop = tmp_path / "loop.json"
+    loop.symlink_to(loop)
+    monkeypatch.setenv("TODO_FILE", str(loop))
+
+    assert main(["add", "new"]) != 0
+    assert capsys.readouterr().err
+
+
 # concurrency
 
 

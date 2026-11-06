@@ -29,6 +29,18 @@ def todo_path() -> Path:
     return Path(os.environ.get(ENV_VAR) or DEFAULT_PATH)
 
 
+def _real_path(path: Path) -> Path:
+    """Follow symlinks in ``path``, so writes reach the real file.
+
+    os.replace() would otherwise swap out a symlink instead of updating its
+    target. Components that don't exist yet are kept as they are, so this also
+    works for a file still to be created, including through a dangling symlink.
+    Unlike Path.resolve() before Python 3.13, realpath() doesn't raise
+    RuntimeError on a symlink loop; that surfaces as an OSError on first use.
+    """
+    return Path(os.path.realpath(path))
+
+
 @contextmanager
 def locked(path: Path) -> Iterator[None]:
     """Hold an exclusive lock on ``path`` for a whole load -> mutate -> save cycle.
@@ -41,10 +53,12 @@ def locked(path: Path) -> Iterator[None]:
     file's inode, so a lock on the file itself would be left behind on the old
     one. The lock file is deliberately never removed: unlinking it would let two
     processes hold "the" lock on different inodes. The lock isn't reentrant.
+    Symlinks are resolved first, so every path to the same file shares one lock.
 
     Where fcntl is missing (Windows) this does nothing, so concurrent writers
     there can still lose updates.
     """
+    path = _real_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path.parent / f"{path.name}.lock", "a") as lock_file:
         if fcntl is not None:
@@ -95,6 +109,7 @@ def save(path: Path, todos: list[Todo]) -> None:
     Each save writes to its own exclusively created temp file, so concurrent
     saves cannot touch each other's pending data or any unrelated file.
     """
+    path = _real_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(
         dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
